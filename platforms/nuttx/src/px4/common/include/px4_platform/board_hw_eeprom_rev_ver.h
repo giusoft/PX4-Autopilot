@@ -32,8 +32,11 @@
  ****************************************************************************/
 #pragma once
 
-#define HW_VERSION_EEPROM 		0x7		//!< Get hw_info from EEPROM
+#define HW_VERSION_EEPROM 		0x7		//!< Get hw_info from base EEPROM
 #define HW_EEPROM_VERSION_MIN	0x10	//!< Minimum supported version
+
+#define HW_REVISION_EEPROM 		0x7		//!< Get hw_info from imu EEPROM
+#define HW_EEPROM_REVISION_MIN	0x10	//!< Minimum supported revision
 
 #pragma pack(push, 1)
 
@@ -45,14 +48,27 @@ typedef struct {
 	mtd_mft_t version;
 	uint16_t hw_extended_ver;
 	uint16_t crc;
-} mtd_mft_v0_t;
+} mtd_mft_ver_v0_t;
 
 typedef struct {
-	mtd_mft_t  version;
+	mtd_mft_t version;
 	uint16_t hw_extended_ver;
 	//{device tree overlay}
 	uint16_t crc;
-} mtd_mft_v1_t;
+} mtd_mft_ver_v1_t;
+
+typedef struct {
+	mtd_mft_t version;
+	uint16_t hw_extended_rev;
+	uint16_t crc;
+} mtd_mft_rev_v0_t;
+
+typedef struct {
+	mtd_mft_t version;
+	uint16_t hw_extended_rev;
+	//{device tree overlay}
+	uint16_t crc;
+} mtd_mft_rev_v1_t;
 
 
 #pragma pack(pop)
@@ -81,9 +97,9 @@ __BEGIN_DECLS
  ************************************************************************************/
 
 #if !defined(BOARD_HAS_SIMPLE_HW_VERSIONING) && defined(BOARD_HAS_VERSIONING)
-__EXPORT int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk);
+__EXPORT int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk, px4_mtd_types_t type);
 #else
-static inline int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk) { return -ENOSYS; }
+static inline int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk, px4_mtd_types_t type) { return -ENOSYS; }
 #endif
 
 /************************************************************************************
@@ -102,9 +118,9 @@ static inline int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_
  ************************************************************************************/
 
 #if !defined(BOARD_HAS_SIMPLE_HW_VERSIONING) && defined(BOARD_HAS_VERSIONING)
-__EXPORT int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft);
+__EXPORT int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft, px4_mtd_types_t type);
 #else
-static inline int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft) { return -ENOSYS; }
+static inline int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft, px4_mtd_types_t type) { return -ENOSYS; }
 #endif
 
 __END_DECLS

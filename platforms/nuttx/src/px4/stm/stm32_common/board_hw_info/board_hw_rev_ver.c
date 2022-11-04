@@ -445,22 +445,36 @@ __EXPORT int board_get_hw_revision()
 
 int board_determine_hw_info()
 {
-	// MFT supported?
-	const char *path;
-	int rvmft = px4_mtd_query("MTD_MFT", NULL, &path);
 
 	// Read ADC jumpering hw_info
 	int rv = determine_hw_info(&hw_revision, &hw_version);
 
 	if (rv == OK) {
 
+		// MFT supported?
+		const char *path;
+		int rvmft = px4_mtd_query("MTD_MFT_VER", NULL, &path);
+
 		if (rvmft == OK && path != NULL && hw_version == HW_VERSION_EEPROM) {
 
-			mtd_mft_v0_t mtd_mft = {MTD_MFT_v0};
-			rv = board_get_eeprom_hw_info(path, (mtd_mft_t *)&mtd_mft);
+			mtd_mft_ver_v0_t mtd_mft = {MTD_MFT_v0};
+			rv = board_get_eeprom_hw_info(path, (mtd_mft_t *)&mtd_mft, MTD_MFT_VER);
 
 			if (rv == OK) {
 				hw_version = mtd_mft.hw_extended_ver;
+			}
+		}
+
+		path = NULL;
+		rvmft = px4_mtd_query("MTD_MFT_REV", NULL, &path);
+
+		if (rvmft == OK && path != NULL && hw_revision == HW_REVISION_EEPROM) {
+
+			mtd_mft_rev_v0_t mtd_mft = {MTD_MFT_v0};
+			rv = board_get_eeprom_hw_info(path, (mtd_mft_t *)&mtd_mft, MTD_MFT_REV);
+
+			if (rv == OK) {
+				hw_revision = mtd_mft.hw_extended_rev;
 			}
 		}
 	}
@@ -487,7 +501,7 @@ int board_determine_hw_info()
  *
  ************************************************************************************/
 
-int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk)
+int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk, px4_mtd_types_t type)
 {
 	if (mtd_mft_unk == NULL || path == NULL) {
 		return -EINVAL;
@@ -495,14 +509,50 @@ int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk)
 
 	// Later this will be a demux on type
 	if (mtd_mft_unk->id != MTD_MFT_v0) {
-		printf("Verson is: %d, Only mft version %d is supported\n", mtd_mft_unk->id, MTD_MFT_v0);
+		printf("Version is: %d, Only mft version %d is supported\n", mtd_mft_unk->id, MTD_MFT_v0);
 		return -EINVAL;
 	}
 
-	mtd_mft_v0_t *mtd_mft = (mtd_mft_v0_t *)mtd_mft_unk;
+	ssize_t mtd_mft_size = 0;
+	uint8_t *ptr_mtd_mft = NULL;
 
-	if (mtd_mft->hw_extended_ver < HW_EEPROM_VERSION_MIN) {
-		printf("hardware version for EEPROM must be greater than %x\n", HW_EEPROM_VERSION_MIN);
+	switch (type) {
+
+	case MTD_MFT_VER: {
+
+			mtd_mft_ver_v0_t *mtd_mft = (mtd_mft_ver_v0_t *)mtd_mft_unk;
+			ptr_mtd_mft = (uint8_t *)mtd_mft;
+
+			mtd_mft_size = sizeof(*mtd_mft);
+
+			if (mtd_mft->hw_extended_ver < HW_EEPROM_VERSION_MIN) {
+				printf("hardware version for EEPROM must be greater than %x\n", HW_EEPROM_VERSION_MIN);
+				return -EINVAL;
+			}
+
+			mtd_mft->crc = crc16_signature(CRC16_INITIAL, mtd_mft_size - sizeof(mtd_mft->crc), ptr_mtd_mft);
+
+			break;
+		}
+
+	case MTD_MFT_REV: {
+
+			mtd_mft_rev_v0_t *mtd_mft = (mtd_mft_rev_v0_t *)mtd_mft_unk;
+
+			mtd_mft_size = sizeof(*mtd_mft);
+
+			if (mtd_mft->hw_extended_rev < HW_EEPROM_REVISION_MIN) {
+				printf("hardware version for EEPROM must be greater than %x\n", HW_EEPROM_VERSION_MIN);
+				return -EINVAL;
+			}
+
+			mtd_mft->crc = crc16_signature(CRC16_INITIAL, mtd_mft_size - sizeof(mtd_mft->crc), ptr_mtd_mft);
+
+			break;
+		}
+
+	default:
+		printf("Unknown MTD_MFT type %d\n", type);
 		return -EINVAL;
 	}
 
@@ -514,11 +564,9 @@ int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk)
 
 	int ret_val = OK;
 
-	mtd_mft->crc = crc16_signature(CRC16_INITIAL, sizeof(*mtd_mft) - sizeof(mtd_mft->crc), (uint8_t *) mtd_mft);
-
 	if (
 		(MTD_MFT_OFFSET != lseek(fd, MTD_MFT_OFFSET, SEEK_SET)) ||
-		(sizeof(*mtd_mft) != write(fd, mtd_mft, sizeof(*mtd_mft)))
+		(mtd_mft_size != write(fd, ptr_mtd_mft, mtd_mft_size))
 	) {
 		ret_val = -errno;
 	}
@@ -542,7 +590,7 @@ int board_set_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft_unk)
  *   -1    - Error while reading from EEPROM
  *
  ************************************************************************************/
-__EXPORT int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft)
+__EXPORT int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft, px4_mtd_types_t type)
 {
 	if (mtd_mft == NULL || path == NULL) {
 		return -EINVAL;
@@ -570,13 +618,40 @@ __EXPORT int board_get_eeprom_hw_info(const char *path, mtd_mft_t *mtd_mft)
 
 		uint16_t mft_size = 0;
 
-		switch (format_version.id) {
-		case MTD_MFT_v0: mft_size = sizeof(mtd_mft_v0_t); break;
+		switch (type) {
 
-		case MTD_MFT_v1: mft_size = sizeof(mtd_mft_v1_t); break;
+		case MTD_MFT_VER:
+
+			switch (format_version.id) {
+			case MTD_MFT_v0: mft_size = sizeof(mtd_mft_ver_v0_t); break;
+
+			case MTD_MFT_v1: mft_size = sizeof(mtd_mft_ver_v1_t); break;
+
+			default:
+				printf("[boot] Error, unknown version %d of mtd_mft in EEPROM\n", format_version.id);
+				ret_val = -1;
+				break;
+			}
+
+			break;
+
+		case MTD_MFT_REV:
+
+			switch (format_version.id) {
+			case MTD_MFT_v0: mft_size = sizeof(mtd_mft_rev_v0_t); break;
+
+			case MTD_MFT_v1: mft_size = sizeof(mtd_mft_rev_v1_t); break;
+
+			default:
+				printf("[boot] Error, unknown version %d of mtd_mft in EEPROM\n", format_version.id);
+				ret_val = -1;
+				break;
+			}
+
+			break;
 
 		default:
-			printf("[boot] Error, unknown version %d of mtd_mft in EEPROM\n", format_version.id);
+			printf("[boot] Error, unknown MTD_MFT type %d\n", type);
 			ret_val = -1;
 			break;
 		}
